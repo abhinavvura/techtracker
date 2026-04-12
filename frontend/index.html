@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TechTracker – AI Newsletter Intelligence</title>
+  <meta name="description" content="TechTracker: AI-powered tech news briefings from your favourite newsletters." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+  <div class="bg-orbs" aria-hidden="true">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+  </div>
+
+  <!-- ══════════════ SIDEBAR ══════════════ -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-top">
+      <div class="logo">
+        <span class="logo-icon">⚡</span>
+        <span class="logo-text">TechTracker</span>
+      </div>
+      <button class="collapse-btn" id="collapseBtn" title="Toggle sidebar">
+        <svg class="collapse-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.5">
+          <polyline points="15 18 9 12 15 6" />
+        </svg>
+      </button>
+    </div>
+
+    <nav class="sidebar-nav">
+      <button class="nav-item active" data-tab="updates">
+        <span class="nav-icon">📡</span><span class="nav-label">Tech Updates</span>
+      </button>
+      <button class="nav-item" data-tab="history">
+        <span class="nav-icon">💬</span><span class="nav-label">Chat History</span>
+      </button>
+      <button class="nav-item" data-tab="calendar">
+        <span class="nav-icon">📅</span><span class="nav-label">Calendar</span>
+      </button>
+      <button class="nav-item" data-tab="configure">
+        <span class="nav-icon">⚙️</span><span class="nav-label">Configure</span>
+      </button>
+      <button class="nav-item" data-tab="connectors">
+        <span class="nav-icon">🔌</span><span class="nav-label">Connectors</span>
+      </button>
+    </nav>
+
+    <div class="sidebar-bottom">
+      <div class="status-indicator">
+        <span class="status-dot" id="statusDot"></span>
+        <span class="status-text" id="statusText">Connecting…</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ══════════════ MAIN ══════════════ -->
+  <main class="main" id="main">
+
+    <!-- Top bar -->
+    <div class="topbar" id="topbar">
+      <button class="icon-btn" id="mobileMenuBtn" title="Menu">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="3" y1="12" x2="21" y2="12" />
+          <line x1="3" y1="6" x2="21" y2="6" />
+          <line x1="3" y1="18" x2="21" y2="18" />
+        </svg>
+      </button>
+      <div class="nl-tags-preview" id="nlTagsPreview"></div>
+      <div class="topbar-right">
+        <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+          <span id="themeIcon">🌙</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- ── TAB: TECH UPDATES ── -->
+    <section class="tab-panel active" id="tab-updates">
+      <header class="panel-header">
+        <div class="panel-title"><span class="panel-icon">📡</span>
+          <h1>Tech Updates</h1>
+        </div>
+      </header>
+
+      <div class="updates-hero" id="updatesHero">
+        <div class="hero-orbit">
+          <div class="hero-planet">🚀</div>
+          <div class="orbit-ring"></div>
+          <div class="orbit-dot d1"></div>
+          <div class="orbit-dot d2"></div>
+          <div class="orbit-dot d3"></div>
+        </div>
+        <div class="hero-text">
+          <div class="hero-badge"><span class="badge-pulse"></span>AI-Powered Briefing</div>
+          <h2 class="hero-headline">Ready for today's<br /><span class="grad">tech briefing?</span></h2>
+          <p class="hero-sub">Instant summaries from your configured newsletters.<br />Hover any item — then click ✨ to
+            deep-dive with AI.</p>
+          <button class="get-updates-btn" id="getUpdatesBtn">
+            <span id="getUpdatesBtnText">⚡ Get Today's Updates</span>
+            <span class="spinner hidden" id="updatesSpinner"></span>
+          </button>
+          <p class="hero-hint" id="heroHint"></p>
+        </div>
+      </div>
+
+      <div class="news-feed hidden" id="newsFeed">
+        <div class="feed-topbar">
+          <div class="feed-meta">
+            <span class="feed-count" id="feedCount"></span>
+            <span class="feed-sep">·</span>
+            <span class="feed-time" id="feedTime"></span>
+            <span class="feed-banner hidden" id="feedBanner"></span>
+          </div>
+          <button class="refresh-btn" id="refreshUpdatesBtn">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="23 4 23 10 17 10" />
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+            </svg>
+            Refresh
+          </button>
+        </div>
+        <div class="news-list" id="newsList"></div>
+        <p class="feed-hint">💡 Hover a news item · hover the card · click <strong>✨ AI Summarise</strong> for a deep
+          dive</p>
+      </div>
+    </section>
+
+    <!-- ── TAB: CHAT HISTORY ── -->
+    <section class="tab-panel hidden" id="tab-history">
+      <header class="panel-header">
+        <div class="panel-title"><span class="panel-icon">💬</span>
+          <h1>Chat History</h1>
+        </div>
+        <button class="icon-btn" id="refreshHistoryBtn" title="Refresh">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="23 4 23 10 17 10" />
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+          </svg>
+        </button>
+      </header>
+      <div class="history-container" id="historyContainer"></div>
+    </section>
+
+    <!-- ── TAB: CALENDAR ── -->
+    <section class="tab-panel hidden" id="tab-calendar">
+      <header class="panel-header">
+        <div class="panel-title"><span class="panel-icon">📅</span>
+          <h1>Calendar</h1>
+        </div>
+      </header>
+      <div class="calendar-content">
+        <!-- Full Month Calendar Widget -->
+        <div class="cal-widget-wrap">
+          <div class="cal-widget">
+            <div class="cal-nav">
+              <button class="cal-nav-btn" id="calPrevMonth" title="Previous month">&#8249;</button>
+              <span class="cal-month-label" id="calMonthYear"></span>
+              <button class="cal-nav-btn" id="calNextMonth" title="Next month">&#8250;</button>
+            </div>
+            <div class="cal-day-headers">
+              <span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span><span>Su</span>
+            </div>
+            <div class="cal-grid" id="calGrid"></div>
+            <div class="cal-legend">
+              <span class="cal-dot-today"></span><span>Today</span>
+              <span class="cal-dot-data"></span><span>Has updates</span>
+              <span class="cal-dot-sel"></span><span>Selected</span>
+            </div>
+          </div>
+          <div class="cal-sidebar-hint" id="calSidebarHint">
+            <div class="cal-hint-icon">📅</div>
+            <p>Click any past date to fetch the tech news for that day.</p>
+            <p class="cal-hint-sub">Dates with <strong>●</strong> have cached updates — instant load!</p>
+            <div class="cal-loading hidden" id="calLoading">
+              <span class="spinner-md"></span>
+              <span>Fetching updates…</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Calendar feed appears here -->
+        <div class="calendar-feed hidden" id="calendarFeed">
+          <div class="feed-topbar">
+            <div class="feed-meta">
+              <span class="feed-count" id="calFeedCount"></span>
+              <span class="feed-sep">·</span>
+              <span class="feed-time" id="calFeedDate"></span>
+              <span class="feed-banner hidden" id="calFeedSource"></span>
+            </div>
+          </div>
+          <div class="news-list" id="calNewsList"></div>
+          <p class="feed-hint">💡 Hover a news item for details · click ✨ AI Summarise for a deep dive</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── TAB: CONFIGURE ── -->
+    <section class="tab-panel hidden" id="tab-configure">
+      <header class="panel-header">
+        <div class="panel-title"><span class="panel-icon">⚙️</span>
+          <h1>Configure</h1>
+        </div>
+      </header>
+      <div class="configure-content">
+        <!-- Newsletters -->
+        <div class="config-card">
+          <h3>📰 Your Newsletters</h3>
+          <p class="config-card-desc">TechTracker will monitor these newsletters for updates.</p>
+          <div class="config-pills" id="configPills"></div>
+          <div class="config-empty-hint hidden" id="configEmptyHint">No newsletters yet — add some below ↓</div>
+          <div class="config-input-row">
+            <input id="configInput" class="config-input" type="text"
+              placeholder="Type a newsletter name and press Enter…" autocomplete="off" />
+            <button class="config-add-btn" id="configAddBtn">Add</button>
+          </div>
+          <div class="config-suggestions">
+            <p class="suggestion-label">Quick add:</p>
+            <div class="suggestion-chips">
+              <button class="s-chip" data-nl="tldr">TLDR</button>
+              <button class="s-chip" data-nl="alphasignal">AlphaSignal</button>
+              <button class="s-chip" data-nl="therundown">The Rundown</button>
+              <button class="s-chip" data-nl="bensbites">Ben's Bites</button>
+              <button class="s-chip" data-nl="hackernewsletter">Hacker NL</button>
+              <button class="s-chip" data-nl="morningbrew">Morning Brew</button>
+              <button class="s-chip" data-nl="stratechery">Stratechery</button>
+            </div>
+          </div>
+          <button class="save-btn" id="saveConfigBtn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            Save Configuration
+          </button>
+        </div>
+
+        <!-- YouTube Channels -->
+        <div class="config-card">
+          <h3>▶️ YouTube Channels</h3>
+          <p class="config-card-desc">TechTracker will fetch the latest video transcript from these channels and include
+            it in your tech briefing.</p>
+          <div class="config-pills" id="ytPills"></div>
+          <div class="config-empty-hint hidden" id="ytEmptyHint">No channels yet — paste a YouTube channel URL below ↓
+          </div>
+          <div class="config-input-row">
+            <input id="ytInput" class="config-input" type="url" placeholder="https://www.youtube.com/@channelname"
+              autocomplete="off" />
+            <button class="config-add-btn" id="ytAddBtn">Add</button>
+          </div>
+          <div class="config-suggestions">
+            <p class="suggestion-label">Popular tech channels:</p>
+            <div class="suggestion-chips">
+              <button class="s-chip yt-chip" data-url="https://www.youtube.com/@mkbhd">MKBHD</button>
+              <button class="s-chip yt-chip" data-url="https://www.youtube.com/@fireship">Fireship</button>
+              <button class="s-chip yt-chip" data-url="https://www.youtube.com/@TwoMinutePapers">2-Min Papers</button>
+              <button class="s-chip yt-chip" data-url="https://www.youtube.com/@ycombinator">Y Combinator</button>
+              <button class="s-chip yt-chip" data-url="https://www.youtube.com/@lexfridman">Lex Fridman</button>
+            </div>
+          </div>
+          <div class="yt-channel-list" id="ytChannelList"></div>
+          <button class="save-btn" id="saveYtBtn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            Save YouTube Channels
+          </button>
+        </div>
+
+        <!-- Preferences -->
+        <div class="config-card">
+          <h3>🎯 Preferences</h3>
+          <p class="config-card-desc">Adjust how TechTracker fetches and filters news.</p>
+          <div class="pref-row">
+            <label class="pref-label" for="lookbackSelect">Fallback lookback</label>
+            <select class="pref-select" id="lookbackSelect">
+              <option value="1">Last 24 hours</option>
+              <option value="3">Last 3 days</option>
+              <option value="7" selected>Last 7 days</option>
+              <option value="14">Last 2 weeks</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── TAB: CONNECTORS ── -->
+    <section class="tab-panel hidden" id="tab-connectors">
+      <header class="panel-header">
+        <div class="panel-title">
+          <span class="panel-icon">🔌</span>
+          <h1>Connectors</h1>
+        </div>
+        <p class="header-desc">Manage your external data sources and credentials</p>
+      </header>
+
+      <div class="configure-content">
+        <!-- Gmail Connector -->
+        <article class="connector-card">
+          <div class="connector-header">
+            <div class="connector-icon-wrapper">✉️</div>
+            <div class="connector-info">
+              <h3>Gmail Update Sync</h3>
+              <p>Securely sync your newsletters via Google OAuth</p>
+            </div>
+          </div>
+          <div class="connector-body">
+            <div class="connector-input-group">
+              <label for="gmailClientId">Client ID</label>
+              <div class="connector-input-wrapper">
+                <input type="password" id="gmailClientId" class="connector-input"
+                  placeholder="000000000000-xxxx.apps.googleusercontent.com" />
+              </div>
+            </div>
+            <div class="connector-input-group">
+              <label for="gmailClientSecret">Client Secret</label>
+              <div class="connector-input-wrapper">
+                <input type="password" id="gmailClientSecret" class="connector-input"
+                  placeholder="GOCSPX-xxxxxxxxxxxxxxxx" />
+              </div>
+            </div>
+            <div class="connector-input-group">
+              <label for="gmailRefreshToken">Refresh Token</label>
+              <div class="connector-input-wrapper">
+                <input type="password" id="gmailRefreshToken" class="connector-input"
+                  placeholder="1//0xxxxxxxxxxxxxxxxxxxxxxxx" />
+              </div>
+            </div>
+          </div>
+          <div class="connector-footer">
+            <button class="btn btn-connector btn-save-connector" id="saveGmailCreds">
+              <span>💾</span> Save Gmail Config
+            </button>
+          </div>
+        </article>
+
+        <!-- YouTube Connector -->
+        <article class="connector-card">
+          <div class="connector-header">
+            <div class="connector-icon-wrapper">▶️</div>
+            <div class="connector-info">
+              <h3>YouTube Data Integration</h3>
+              <p>Enhance transcripts with official API access</p>
+            </div>
+          </div>
+          <div class="connector-body">
+            <div class="connector-input-group">
+              <label for="youtubeApiKey">YouTube API Key</label>
+              <div class="connector-input-wrapper">
+                <input type="password" id="youtubeApiKey" class="connector-input"
+                  placeholder="AIzaSyXXXXXXXXXXXXXXXX" />
+              </div>
+            </div>
+          </div>
+          <div class="connector-footer">
+            <button class="btn btn-connector btn-save-connector" id="saveYoutubeCreds">
+              <span>💾</span> Save YouTube Key
+            </button>
+          </div>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <!-- ══════════════ INTERACTIVE HOVER CARD ══════════════ -->
+  <div class="hover-card hidden" id="hoverCard">
+    <div class="hc-think-dots"><span></span><span></span><span></span></div>
+    <div class="hc-header">
+      <span class="hc-source-badge" id="hcSource"></span>
+      <button class="hc-close" id="hcClose" title="Close">×</button>
+    </div>
+    <p class="hc-title" id="hcTitle"></p>
+    <div class="hc-desc-wrap">
+      <p class="hc-desc" id="hcDesc"></p>
+    </div>
+    <div class="hc-actions">
+      <span class="hc-select-hint" id="hcSelectHint">Select text above to refine, or:</span>
+      <button class="hc-ai-btn" id="hcAiBtn">✨ AI Summarise</button>
+    </div>
+  </div>
+
+  <!-- ══════════════ CHAT WIDGET ══════════════ -->
+  <button class="chat-fab" id="chatFab" title="AI Chat">
+    <!-- Custom AI brain SVG icon -->
+    <svg class="chat-fab-svg" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="18" cy="18" r="18" fill="url(#fabGrad)" />
+      <path d="M11 14a7 7 0 0 1 14 0c0 3-1.5 5.5-4 7l1 3H14l1-3c-2.5-1.5-4-4-4-7Z" fill="white" fill-opacity="0.92" />
+      <circle cx="15" cy="15" r="1.2" fill="#6c63ff" />
+      <circle cx="21" cy="15" r="1.2" fill="#6c63ff" />
+      <path d="M15 19.5c0 0 1 1.5 3 1.5s3-1.5 3-1.5" stroke="#6c63ff" stroke-width="1.4" stroke-linecap="round" />
+      <defs>
+        <linearGradient id="fabGrad" x1="0" y1="0" x2="36" y2="36">
+          <stop offset="0%" stop-color="#6c63ff" />
+          <stop offset="100%" stop-color="#00d4aa" />
+        </linearGradient>
+      </defs>
+    </svg>
+    <span class="chat-badge hidden" id="chatBadge">0</span>
+  </button>
+
+  <div class="chat-widget hidden" id="chatWidget">
+    <div class="cw-header">
+      <div class="cw-title">
+        <svg width="20" height="20" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="18" cy="18" r="18" fill="url(#cwGrad)" />
+          <path d="M11 14a7 7 0 0 1 14 0c0 3-1.5 5.5-4 7l1 3H14l1-3c-2.5-1.5-4-4-4-7Z" fill="white"
+            fill-opacity="0.9" />
+          <circle cx="15" cy="15" r="1.1" fill="#6c63ff" />
+          <circle cx="21" cy="15" r="1.1" fill="#6c63ff" />
+          <path d="M15 19.5c0 0 1 1.5 3 1.5s3-1.5 3-1.5" stroke="#6c63ff" stroke-width="1.3" stroke-linecap="round" />
+          <defs>
+            <linearGradient id="cwGrad" x1="0" y1="0" x2="36" y2="36">
+              <stop offset="0%" stop-color="#6c63ff" />
+              <stop offset="100%" stop-color="#00d4aa" />
+            </linearGradient>
+          </defs>
+        </svg>
+        <span>TechTracker AI</span>
+      </div>
+      <div class="cw-header-actions">
+        <button class="icon-btn-sm" id="chatClear" title="Clear chat">🗑</button>
+        <button class="icon-btn-sm" id="chatClose" title="Close">×</button>
+      </div>
+    </div>
+    <div class="cw-messages" id="cwMessages">
+      <div class="cw-welcome">
+        <svg class="cw-welcome-icon" viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="40" cy="40" r="40" fill="url(#wGrad)" />
+          <path d="M24 32a16 16 0 0 1 32 0c0 7-3.5 12.5-9 16l2 7H31l2-7c-5.5-3.5-9-9-9-16Z" fill="white"
+            fill-opacity="0.9" />
+          <circle cx="34" cy="34" r="2.5" fill="#6c63ff" />
+          <circle cx="46" cy="34" r="2.5" fill="#6c63ff" />
+          <path d="M34 44s2.5 3.5 6 3.5 6-3.5 6-3.5" stroke="#6c63ff" stroke-width="2.5" stroke-linecap="round" />
+          <defs>
+            <linearGradient id="wGrad" x1="0" y1="0" x2="80" y2="80">
+              <stop offset="0%" stop-color="#6c63ff" />
+              <stop offset="100%" stop-color="#00d4aa" />
+            </linearGradient>
+          </defs>
+        </svg>
+        <p>Hi! I'm <strong>TechTracker AI</strong>.<br />Hover a news item and click <strong>✨ AI Summarise</strong> for
+          a deep-dive, or ask me anything!</p>
+      </div>
+    </div>
+    <div class="cw-input-area">
+      <textarea class="cw-input" id="cwInput" rows="2" placeholder="Ask anything about your newsletters…"></textarea>
+      <button class="cw-send-btn" id="cwSendBtn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <line x1="22" y1="2" x2="11" y2="13" />
+          <polygon points="22 2 15 22 11 13 2 9 22 2" />
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast hidden" id="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+
+</html>
