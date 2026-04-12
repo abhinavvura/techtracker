@@ -139,11 +139,14 @@ logger.info(f"[STARTUP] MCP server URL: {MCP_SERVER_URL}")
 
 
 def _call_mcp_tool(tool_name: str, arguments: dict) -> str:
-    """Synchronous wrapper that calls a tool on the MCP server."""
+    """Synchronous wrapper that calls a tool on the MCP server.
+    Always runs in a dedicated thread with its own event loop to avoid
+    conflicts with FastAPI's AnyIO event loop."""
+    import concurrent.futures
+
     async def _run():
         async with MCPClient(MCP_SERVER_URL) as client:
             result = await client.call_tool(name=tool_name, arguments=arguments)
-            # FastMCP returns a list of content blocks; join text parts
             if isinstance(result, list):
                 return "\n".join(
                     getattr(block, "text", str(block)) for block in result
@@ -151,15 +154,9 @@ def _call_mcp_tool(tool_name: str, arguments: dict) -> str:
             return str(result)
 
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # Inside an async context (e.g. FastAPI) — run in a new thread
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                future = pool.submit(asyncio.run, _run())
-                return future.result(timeout=60)
-        else:
-            return loop.run_until_complete(_run())
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(asyncio.run, _run())
+            return future.result(timeout=60)
     except Exception as e:
         logger.error(f"[MCP] Tool '{tool_name}' failed: {e}")
         return f"MCP tool error ({tool_name}): {e}"
@@ -247,8 +244,12 @@ def extract_headlines(content: str, newsletters: str, req_id: str = "global") ->
         # Log tokens for direct genai call
         try:
             usage = response.usage_metadata
-            log_tokens(req_id, usage.prompt_token_count, usage.candidates_token_count)
-        except: pass
+            in_t  = getattr(usage, "prompt_token_count", 0) or getattr(usage, "input_token_count", 0) or 0
+            out_t = getattr(usage, "candidates_token_count", 0) or getattr(usage, "output_token_count", 0) or 0
+            if in_t or out_t:
+                log_tokens(req_id, in_t, out_t)
+        except Exception:
+            pass
 
 
         text = re.sub(r"^```(?:json)?\s*\n?", "", response.text.strip())
@@ -356,38 +357,34 @@ class TechTrackerCallbackHandler(BaseCallbackHandler):
     def on_llm_end(self, response, **kwargs):
         elapsed = time.time() - self._llm_start if self._llm_start else 0.0
         self._llm_start = 0.0
-        
-        # Capture token usage from LangChain response
         in_t, out_t = 0, 0
         try:
-            # 1. Inspect response.llm_output (Top level)
-            if response.llm_output:
-                tu = response.llm_output.get("token_usage", {})
-                in_t = tu.get("prompt_tokens") or tu.get("input_tokens") or 0
-                out_t = tu.get("completion_tokens") or tu.get("output_tokens") or 0
-                
-            # 2. Inspect usage_metadata in generation_info
-            if in_t == 0 and response.generations:
+            if response.generations:
                 gen = response.generations[0][0]
-                if hasattr(gen, 'generation_info') and gen.generation_info:
+
+                # Modern langchain-google-genai: usage_metadata on the message
+                if hasattr(gen, "message") and hasattr(gen.message, "usage_metadata"):
+                    um = gen.message.usage_metadata or {}
+                    in_t  = um.get("input_tokens") or um.get("prompt_tokens") or 0
+                    out_t = um.get("output_tokens") or um.get("completion_tokens") or 0
+
+                # Fallback: generation_info dict
+                if in_t == 0 and hasattr(gen, "generation_info") and gen.generation_info:
                     um = gen.generation_info.get("usage_metadata", {})
-                    in_t = um.get("prompt_token_count") or um.get("input_token_count") or 0
+                    in_t  = um.get("prompt_token_count") or um.get("input_token_count") or 0
                     out_t = um.get("candidates_token_count") or um.get("output_token_count") or 0
-                
-                # 3. Newer LangChain: gen.message.usage_metadata
-                if in_t == 0 and hasattr(gen, 'message') and hasattr(gen.message, 'usage_metadata'):
-                    um = gen.message.usage_metadata
-                    if um:
-                        in_t = um.get("input_tokens") or um.get("prompt_tokens") or 0
-                        out_t = um.get("output_tokens") or um.get("completion_tokens") or 0
+
+            # Fallback: top-level llm_output
+            if in_t == 0 and response.llm_output:
+                tu = response.llm_output.get("token_usage", {})
+                in_t  = tu.get("prompt_tokens") or tu.get("input_tokens") or 0
+                out_t = tu.get("completion_tokens") or tu.get("output_tokens") or 0
 
             rid_key = self._rid.strip("[] ") or "global"
             if in_t > 0 or out_t > 0:
                 log_tokens(rid_key, in_t, out_t)
             else:
-                # Last resort fallback if we know there was usage but can't find it
-                # logger.debug(f"[DEBUG] Raw response info: {response.llm_output} | {response.generations[0][0].generation_info if response.generations else ''}")
-                pass
+                logger.debug(f"{self._rid}[LLM] Could not extract token counts from response")
 
         except Exception as e:
             logger.debug(f"Could not parse token usage: {e}")
@@ -963,9 +960,9 @@ def calendar_updates(
 
     # ── Step 3: Gmail sync if recent ─────────────────────────────
     if not all_emails and target_date >= (datetime.utcnow().date() - timedelta(days=30)):
-        _log_step("[STEP 3/4]", "No emails → syncing Gmail")
+        _log_step("[STEP 3/4]", f"No emails → syncing Gmail for {date}")
         t3 = time.time()
-        fetch_and_sync_newsletters.invoke({"newsletter_names": newsletters})
+        _call_mcp_tool("fetch_gmail_newsletters", {"newsletter_names": f"{newsletters}|date:{date}"})
         _log_step("", f"Gmail sync done | {time.time()-t3:.2f}s")
         db2 = NewsletterSessionLocal()
         all_emails = query_emails_for_nl(db2, nl_list, extra_filter=date_filter, limit_each=5)

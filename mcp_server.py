@@ -36,12 +36,18 @@ mcp = FastMCP("TechTracker MCP 🚀")
 @mcp.tool
 def fetch_gmail_newsletters(newsletter_names: str) -> str:
     """
-    Fetches the latest newsletters from the Gmail API and saves new ones to local_gmail.db.
+    Fetches newsletters from the Gmail API and saves new ones to local_gmail.db.
     Input: comma-separated newsletter names or sender keywords.
+    Optionally append '|date:YYYY-MM-DD' to scope the fetch to a specific day.
+    Example: 'tldr,alphasignal|date:2026-04-09'
     Returns: sync summary (how many new emails were saved and from whom).
     """
     try:
-        return gmail.sync_newsletters(newsletter_names)
+        target_date = None
+        if "|date:" in newsletter_names:
+            newsletter_names, target_date = newsletter_names.split("|date:", 1)
+            target_date = target_date.strip()
+        return gmail.sync_newsletters(newsletter_names.strip(), target_date=target_date)
     except Exception as e:
         logger.error(f"[GMAIL] fetch_gmail_newsletters error: {e}")
         return f"Error fetching newsletters: {e}"

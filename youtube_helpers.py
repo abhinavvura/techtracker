@@ -3,6 +3,7 @@ youtube_helpers.py — YouTube channel, video, and transcript utilities for Tech
 """
 import re
 import logging
+import time
 from datetime import datetime
 from typing import Optional
 
@@ -96,11 +97,18 @@ def fetch_channel_content(channel_url: str) -> str:
     Full pipeline for one channel: resolve ID → latest video → transcript → store in DB.
     Returns a formatted string with channel name, video title, URL, and transcript.
     """
+    t0 = time.time()
     label = channel_label(channel_url)
     logger.info(f"[YOUTUBE] Processing: {label}")
 
+    t_id = time.time()
     channel_id = get_channel_id(channel_url)
-    video_id   = get_latest_video_id(channel_id)
+    logger.info(f"[YOUTUBE] Resolved channel ID: {channel_id} | {time.time()-t_id:.2f}s")
+
+    t_vid = time.time()
+    video_id = get_latest_video_id(channel_id)
+    logger.info(f"[YOUTUBE] Latest video ID: {video_id} | {time.time()-t_vid:.2f}s")
+
     if not video_id:
         return f"{label}: No suitable video found."
 
@@ -108,15 +116,19 @@ def fetch_channel_content(channel_url: str) -> str:
     existing = db.query(Email).filter_by(message_id=f"yt:{video_id}").first()
     if existing:
         db.close()
+        logger.info(f"[YOUTUBE] {label}: transcript from DB cache | {time.time()-t0:.2f}s")
         return (
             f"Channel: {label}\nVideo: {existing.subject}\n\n"
             f"{(existing.clean_text or '')[:3000]}"
         )
 
+    t_tr = time.time()
     transcript_text = get_transcript(video_id)
-    video_url       = f"https://www.youtube.com/watch?v={video_id}"
-    title           = get_video_title(channel_id, video_id)
-    clean           = (
+    logger.info(f"[YOUTUBE] Transcript fetched: {len(transcript_text)} chars | {time.time()-t_tr:.2f}s")
+
+    video_url = f"https://www.youtube.com/watch?v={video_id}"
+    title     = get_video_title(channel_id, video_id)
+    clean     = (
         f"[YouTube Transcript]\nChannel: {label}\n"
         f"Video: {title}\nURL: {video_url}\n\n{transcript_text}"
     )
@@ -129,5 +141,5 @@ def fetch_channel_content(channel_url: str) -> str:
     db.commit()
     db.close()
 
-    logger.info(f"[YOUTUBE] Saved transcript for {label} ({len(transcript_text)} chars)")
+    logger.info(f"[YOUTUBE] {label}: done | total {time.time()-t0:.2f}s")
     return f"Channel: {label}\nVideo: {title}\nURL: {video_url}\n\n{transcript_text[:4000]}"

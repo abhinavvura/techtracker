@@ -5,6 +5,7 @@ import os
 import re
 import base64
 import logging
+import time
 from datetime import datetime
 from typing import Optional
 
@@ -92,16 +93,27 @@ def clean_html(html: str) -> str:
     return text.strip()
 
 
-def sync_newsletters(newsletter_names: str) -> str:
+def sync_newsletters(newsletter_names: str, target_date: str = None) -> str:
     """
-    Fetch up to 20 Gmail messages matching the given newsletter names and
-    save new ones to local_gmail.db. Returns a summary string.
+    Fetch newsletters from Gmail and save new ones to local_gmail.db.
+    target_date: optional YYYY-MM-DD to scope the Gmail query to that day.
+    Without it, fetches the latest 20 messages.
     """
-    logger.info(f"[GMAIL] Syncing: {newsletter_names[:80]}")
+    t0 = time.time()
+    logger.info(f"[GMAIL] Syncing: {newsletter_names[:80]}" + (f" for {target_date}" if target_date else ""))
     token  = get_access_token()
     names  = [n.strip() for n in newsletter_names.split(",")]
     query  = " OR ".join(set(names))
 
+    # Scope to a specific date if provided
+    if target_date:
+        from datetime import datetime, timedelta
+        dt = datetime.strptime(target_date, "%Y-%m-%d")
+        after  = dt.strftime("%Y/%m/%d")
+        before = (dt + timedelta(days=1)).strftime("%Y/%m/%d")
+        query  = f"({query}) after:{after} before:{before}"
+
+    t_api = time.time()
     resp = requests.get(
         f"{GMAIL_API}/users/me/messages",
         headers={"Authorization": f"Bearer {token}"},
@@ -109,6 +121,8 @@ def sync_newsletters(newsletter_names: str) -> str:
         timeout=15,
     )
     messages = resp.json().get("messages", [])
+    logger.info(f"[GMAIL] Gmail list API: {len(messages)} messages | {time.time()-t_api:.2f}s")
+
     if not messages:
         return f"No newsletters found in Gmail for '{newsletter_names}'."
 
@@ -121,6 +135,7 @@ def sync_newsletters(newsletter_names: str) -> str:
         if db.query(Email).filter_by(message_id=mid).first():
             already += 1
             continue
+        t_msg = time.time()
         detail  = requests.get(
             f"{GMAIL_API}/users/me/messages/{mid}",
             headers={"Authorization": f"Bearer {token}"},
@@ -142,11 +157,12 @@ def sync_newsletters(newsletter_names: str) -> str:
             processed=True,
         ))
         new_count += 1
+        logger.info(f"[GMAIL] Fetched & parsed msg {mid[:12]}… | {time.time()-t_msg:.2f}s")
 
     db.commit()
     db.close()
     sender_list = sorted(found_senders)
-    logger.info(f"[GMAIL] Saved {new_count} new | {already} already present")
+    logger.info(f"[GMAIL] Saved {new_count} new | {already} already present | total {time.time()-t0:.2f}s")
     return f"Synced {new_count} new newsletters. Found emails from: {', '.join(sender_list)}."
 
 
