@@ -27,6 +27,7 @@ from fastmcp import Client as MCPClient
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 import google.generativeai as genai
 import logging
@@ -54,10 +55,11 @@ except ImportError:
 
 # Local modules
 from database import (
-    NewsletterSessionLocal, ChatSessionLocal, DailySessionLocal, UserDataSessionLocal,
-    newsletter_engine, chat_engine, daily_engine, user_data_engine
+    SourceSessionLocal, ChatSessionLocal, DailySessionLocal, UserDataSessionLocal,
+    source_engine, chat_engine, daily_engine, user_data_engine
 )
-from models import Email, ChatMessage, DailyUpdate, ConnectorCredential, Base
+from models import Newsletter, YouTubeTranscript, ChatMessage, DailyUpdate, ConnectorCredential, LinkedInPost, Base
+from lnkdn import fetch_posts as fetch_linkedin_posts
 
 # ── Logging setup ────────────────────────────────────────────────
 _log_fmt = "%(asctime)s │ %(levelname)-5s │ %(message)s"
@@ -83,12 +85,12 @@ logger.info("━" * 60)
 # ════════════════════════════════════════════
 load_dotenv()
 
-Base.metadata.create_all(bind=newsletter_engine)
+Base.metadata.create_all(bind=source_engine)
 Base.metadata.create_all(bind=chat_engine)
 Base.metadata.create_all(bind=daily_engine)
 Base.metadata.create_all(bind=user_data_engine)
 logger.info("[STARTUP] All DB tables verified / created.")
-logger.info("[STARTUP] Databases: data/local_gmail.db | data/chat_history.db | data/daily_updates.db | data/user_data.db")
+logger.info("[STARTUP] Databases: data/source.db | data/chat_history.db | data/daily_updates.db | data/user_data.db")
 
 # ── Token & Cost Tracking ──────────────────────────────────────────
 # Approx prices for Gemini 1.5 Flash
@@ -199,15 +201,15 @@ def fetch_url_content_helper(url: str) -> str:
 
 
 def query_emails_for_nl(db_session, nl_list: list, extra_filter=None, limit_each: int = 5) -> list:
-    """Query emails matching any newsletter name, with optional extra SQL filter."""
+    """Query newsletters matching any newsletter name, with optional extra SQL filter."""
     all_emails, seen_ids = [], set()
     for nl in nl_list:
-        q = db_session.query(Email).filter(
-            Email.sender.ilike(f"%{nl}%") | Email.subject.ilike(f"%{nl}%")
+        q = db_session.query(Newsletter).filter(
+            Newsletter.sender.ilike(f"%{nl}%") | Newsletter.subject.ilike(f"%{nl}%")
         )
         if extra_filter is not None:
             q = q.filter(extra_filter)
-        for e in q.order_by(Email.received_date.desc()).limit(limit_each).all():
+        for e in q.order_by(Newsletter.received_date.desc()).limit(limit_each).all():
             if e.message_id not in seen_ids:
                 all_emails.append(e)
                 seen_ids.add(e.message_id)
@@ -415,7 +417,7 @@ import gmail_helpers as gmail_db  # local DB searches called directly
 @tool
 def fetch_and_sync_newsletters(newsletter_names: str) -> str:
     """
-    Fetches the latest newsletters from Gmail API via MCP and saves them to local_gmail.db.
+    Fetches the latest newsletters from Gmail API via MCP and saves them to source.db.
     Input: comma-separated newsletter names or topics.
     """
     logger.info(f"  [MCP→GMAIL]    fetch_gmail_newsletters: {newsletter_names[:80]}")
@@ -432,9 +434,8 @@ def search_newsletters_db(query: str) -> str:
 def summarize_newsletter(message_id: str) -> str:
     """Summarizes a specific newsletter by its message ID."""
     logger.info(f"  [MCP→GMAIL]    summarize_newsletter: {message_id[:20]}")
-    # Summarization still runs locally (uses Gemini directly)
-    db = NewsletterSessionLocal()
-    email = db.query(Email).filter_by(message_id=message_id).first()
+    db = SourceSessionLocal()
+    email = db.query(Newsletter).filter_by(message_id=message_id).first()
     if not email:
         db.close()
         return "Newsletter not found."
@@ -448,17 +449,86 @@ def summarize_newsletter(message_id: str) -> str:
     return f"Summary: {summary}"
 
 
-# ── Tools for the CHAT Agent ──────────────────────────────────────
 @tool
-def search_gmail_db_for_context(query: str) -> str:
+def search_source_db_for_context(query: str) -> str:
     """
-    Searches local_gmail.db for newsletter content related to the user's highlighted text.
-    Searches across clean_text, subject, and summary fields.
-    Returns full source info (newsletter name, date, subject) plus the relevant text snippets.
+    Searches source.db for content related to the user's highlighted text.
+    This unified search covers ALL sources: newsletters (Gmail), YouTube transcripts, and LinkedIn posts.
+    Searches across all content fields and returns rich snippets with source attribution.
     Always call this FIRST before using any web search tool.
     Input: the user's highlighted news text or question.
     """
-    return gmail_db.search_gmail_db_for_context(query)
+    logger.info(f"  [SOURCE-DB]    search_source_db_for_context: {query[:80]}")
+    keywords = [k for k in re.split(r"[\s,\.]+", query) if len(k) > 3][:10]
+    if not keywords:
+        keywords = [query[:50]]
+
+    db = SourceSessionLocal()
+    blocks = []
+    seen = set()
+
+    # 1. Search newsletters
+    for kw in keywords[:6]:
+        for r in db.query(Newsletter).filter(
+            Newsletter.clean_text.ilike(f"%{kw}%") |
+            Newsletter.subject.ilike(f"%{kw}%") |
+            Newsletter.summary.ilike(f"%{kw}%")
+        ).order_by(Newsletter.received_date.desc()).limit(4).all():
+            if r.message_id not in seen:
+                seen.add(r.message_id)
+                raw_urls = re.findall(r"https?://[^\s\]\[\)\(,;<>]+", r.clean_text or "")
+                urls = list(dict.fromkeys(u.rstrip(".,;:)'\"") for u in raw_urls))[:5]
+                url_list = "\n".join(f"  - {u}" for u in urls) if urls else "  None found"
+                blocks.append(
+                    f"[SOURCE: Newsletter]\n"
+                    f"NEWSLETTER: {r.sender}\n"
+                    f"REFERENCE:  {r.sender} | {r.subject} ({r.received_date.strftime('%Y-%m-%d')})\n"
+                    f"SUBJECT:    {r.subject}\n"
+                    f"URLS IN EMAIL:\n{url_list}\n\n"
+                    f"CONTENT Snippet ({len(r.clean_text or '')} chars):\n{(r.clean_text or '')[:4000]}"
+                )
+
+    # 2. Search YouTube transcripts
+    for kw in keywords[:6]:
+        for r in db.query(YouTubeTranscript).filter(
+            YouTubeTranscript.transcript.ilike(f"%{kw}%") |
+            YouTubeTranscript.title.ilike(f"%{kw}%") |
+            YouTubeTranscript.channel.ilike(f"%{kw}%")
+        ).order_by(YouTubeTranscript.published_at.desc()).limit(4).all():
+            if r.video_id not in seen:
+                seen.add(r.video_id)
+                blocks.append(
+                    f"[SOURCE: YouTube]\n"
+                    f"YOUTUBE CHANNEL: {r.channel}\n"
+                    f"VIDEO TITLE: {r.title}\n"
+                    f"URL: https://youtube.com/watch?v={r.video_id}\n\n"
+                    f"TRANSCRIPT:\n{(r.transcript or '')[:4000]}"
+                )
+
+    # 3. Search LinkedIn posts
+    for kw in keywords[:6]:
+        for r in db.query(LinkedInPost).filter(
+            LinkedInPost.text.ilike(f"%{kw}%") |
+            LinkedInPost.username.ilike(f"%{kw}%")
+        ).order_by(LinkedInPost.posted_at.desc()).limit(4).all():
+            if r.url not in seen:
+                seen.add(r.url)
+                blocks.append(
+                    f"[SOURCE: LinkedIn]\n"
+                    f"LINKEDIN POST BY: {r.username}\n"
+                    f"DATE: {r.posted_at}\n"
+                    f"METRICS: {r.likes} Likes, {r.comments} Comments\n"
+                    f"URL: {r.url}\n\n"
+                    f"CONTENT:\n{(r.text or '')[:4000]}"
+                )
+
+    db.close()
+
+    if not blocks:
+        return "No relevant content found in source.db for this query."
+
+    logger.info(f"  [SOURCE-DB]    search_source_db_for_context: {len(blocks)} source(s) found")
+    return "\n\n" + ("\n" + "─" * 40 + "\n").join(blocks[:8])
 
 
 @tool
@@ -543,7 +613,7 @@ def fetch_youtube_content(channel_urls: str) -> str:
 
     Input: comma-separated YouTube channel URLs.
     Returns: channel name, video title (from RSS), and the full transcript text.
-    Each result is stored in local_gmail.db so the Chat Agent can later look it up.
+    Each result is stored in source.db so the Chat Agent can later look it up.
     """
     logger.info(f"  [MCP→YOUTUBE]  fetch_youtube_content: {channel_urls[:80]}")
     return _call_mcp_tool("fetch_youtube_content", {"channel_urls": channel_urls})
@@ -630,8 +700,8 @@ Final Answer: your briefing
 ---
 EXAMPLE FLOW:
 Question: "Tell me about GPT-4o"
-Thought: I need to check the local inbox for GPT-4o.
-Action: search_gmail_db_for_context
+Thought: I need to check my local source database for GPT-4o content.
+Action: search_source_db_for_context
 Action Input: GPT-4o
 Observation: Found result...
 Thought: I have enough info.
@@ -643,7 +713,7 @@ CRITICAL EXECUTION RULES:
 2. NO SKIPPING: Every 'Thought:' MUST be followed by an 'Action:' OR 'Final Answer:'.
 3. NO PREDICTIONS: STOP after writing 'Action Input:'. Do NOT write 'Observation:'.
 4. STEP SEQUENCE:
-   - Step 1: ALWAYS call 'search_gmail_db_for_context' first.
+   - Step 1: ALWAYS call 'search_source_db_for_context' first — it searches newsletters, YouTube transcripts, AND LinkedIn posts in one go.
    - Step 2: If the result contains URLs, use 'get_url_context' for each relevant one.
    - Step 3: Only use 'tavily_search' if you still lack key details.
 5. CITATION: Your Final Answer MUST end with a '### 🔗 References' section citing sources.
@@ -655,7 +725,7 @@ Question: {input}
 Thought:{agent_scratchpad}"""
 
 _chat_prompt   = PromptTemplate.from_template(_CHAT_PROMPT)
-_chat_tools    = [search_gmail_db_for_context, get_url_context, tavily_search]
+_chat_tools    = [search_source_db_for_context, get_url_context, tavily_search]
 _chat_agent    = create_react_agent(llm, _chat_tools, _chat_prompt)
 chat_executor  = AgentExecutor(
     agent=_chat_agent, tools=_chat_tools,
@@ -680,7 +750,7 @@ def root():
     return {
         "service": "TechTracker AI",
         "agents": ["updates_agent", "chat_agent"],
-        "databases": ["data/local_gmail.db", "data/chat_history.db", "data/daily_updates.db", "data/user_data.db"],
+        "databases": ["data/source.db", "data/chat_history.db", "data/daily_updates.db", "data/user_data.db"],
         "endpoints": ["/get_updates", "/today_updates", "/calendar_updates",
                       "/chat_summarise", "/chat_history", "/available_dates"],
     }
@@ -730,10 +800,11 @@ def get_updates(
 # ── GET /today_updates ───────────────────────────────────────────
 @app.get("/today_updates")
 def today_updates(
-    newsletters: str = Query(...),
+    newsletters: str = Query(default=""),
     days:        int  = Query(default=7),
     force:       bool = Query(default=False, description="Skip cache & DB, go straight to Gmail"),
     yt_channels: str  = Query(default="", description="Comma-separated YouTube channel URLs"),
+    linkedin_profiles: str = Query(default="", description="Comma-separated LinkedIn profile handles"),
 ):
     req_id    = datetime.utcnow().strftime("%H%M%S")
     today_str = datetime.utcnow().date().isoformat()
@@ -745,107 +816,111 @@ def today_updates(
     t0 = time.time()
 
     try:
-        nl_list = nl_key.split(",")
+        nl_list = [n for n in nl_key.split(",") if n]
+        all_emails = []
+        is_today = True
+        fallback_msg = None
 
-        if force:
-            # ── Force-refresh: skip cache & DB, go directly to Gmail ──
-            _log_step("[FORCE]", "Skipping cache & DB — syncing Gmail directly")
-            t_sync = time.time()
-            fetch_and_sync_newsletters.invoke({"newsletter_names": newsletters})
-            _log_step("", f"Gmail sync done | {time.time()-t_sync:.2f}s")
-
-            today_filter  = sql_func.date(Email.received_date) == today_str
-            db_f = NewsletterSessionLocal()
-            all_emails = query_emails_for_nl(db_f, nl_list, extra_filter=today_filter)
-            db_f.close()
-            _log_step("", f"Post-sync: {len(all_emails)} today emails in local_gmail.db")
-
-            if not all_emails:
-                # Fallback within force mode — take recent
-                cutoff = datetime.utcnow() - timedelta(days=days)
-                db_fb = NewsletterSessionLocal()
-                all_emails = query_emails_for_nl(db_fb, nl_list,
-                                                 extra_filter=Email.received_date >= cutoff,
-                                                 limit_each=3)
-                db_fb.close()
-
-            is_today = True
-            fallback_msg = None
-
-        else:
-            # ── Normal waterfall (cache → DB → Gmail → fallback) ─────
-
-            # Step 1: DailyUpdates cache
-            _log_step("[STEP 1/5]", f"Check daily_updates.db cache for {today_str}")
-            t1 = time.time()
-            daily_db = DailySessionLocal()
-            cached = daily_db.query(DailyUpdate).filter(
-                DailyUpdate.date == today_str,
-                DailyUpdate.newsletters == nl_key,
-            ).order_by(DailyUpdate.created_at.desc()).first()
-            daily_db.close()
-            _log_step("", f"Cache {'HIT ✓' if cached else 'MISS'} | {time.time()-t1:.2f}s")
-
-            if cached:
-                headlines = json_module.loads(cached.headlines_json)
-                logger.info(f"  [LATENCY]      Cache served {len(headlines)} headlines | {time.time()-t0:.2f}s")
-                logger.info("─" * 55)
-                return {"headlines": headlines, "newsletters": nl_key.split(","),
-                        "count": len(headlines), "is_today": True,
-                        "source": "cache", "message": None,
-                        "generated_at": cached.created_at.isoformat()}
-
-            # Step 2: Check local_gmail.db for today
-            today_filter = sql_func.date(Email.received_date) == today_str
-            _log_step("[STEP 2/5]", "Check local_gmail.db for today's emails")
-            t2 = time.time()
-            db = NewsletterSessionLocal()
-            today_emails = query_emails_for_nl(db, nl_list, extra_filter=today_filter)
-            db.close()
-            _log_step("", f"Found {len(today_emails)} emails | {time.time()-t2:.2f}s")
-
-            # Step 3: Gmail sync if needed
-            if not today_emails:
-                _log_step("[STEP 3/5]", "No today emails → syncing Gmail")
-                t3 = time.time()
+        if nl_list:
+            if force:
+                # ── Force-refresh: skip cache & DB, go directly to Gmail ──
+                _log_step("[FORCE]", "Skipping cache & DB — syncing Gmail directly")
+                t_sync = time.time()
                 fetch_and_sync_newsletters.invoke({"newsletter_names": newsletters})
-                _log_step("", f"Gmail sync done | {time.time()-t3:.2f}s")
-                db2 = NewsletterSessionLocal()
-                today_emails = query_emails_for_nl(db2, nl_list, extra_filter=today_filter)
-                db2.close()
-                _log_step("", f"Post-sync: {len(today_emails)} emails in local_gmail.db")
+                _log_step("", f"Gmail sync done | {time.time()-t_sync:.2f}s")
+    
+                today_filter  = sql_func.date(Newsletter.received_date) == today_str
+                db_f = SourceSessionLocal()
+                all_emails = query_emails_for_nl(db_f, nl_list, extra_filter=today_filter)
+                db_f.close()
+                _log_step("", f"Post-sync: {len(all_emails)} today emails in source.db")
+    
+                if not all_emails:
+                    # Fallback within force mode — take recent
+                    cutoff = datetime.utcnow() - timedelta(days=days)
+                    db_fb = SourceSessionLocal()
+                    all_emails = query_emails_for_nl(db_fb, nl_list,
+                                                     extra_filter=Newsletter.received_date >= cutoff,
+                                                     limit_each=3)
+                    db_fb.close()
+    
+                is_today = True
+                fallback_msg = None
+    
             else:
-                _log_step("[STEP 3/5]", "Skipped (emails already in local_gmail.db)")
+                # ── Normal waterfall (cache → DB → Gmail → fallback) ─────
 
-            # Step 4: Fallback to recent emails
-            is_today     = len(today_emails) > 0
-            fallback_msg = None
-            all_emails   = today_emails
+                # Step 1: DailyUpdates cache
+                _log_step("[STEP 1/5]", f"Check daily_updates.db cache for {today_str}")
+                t1 = time.time()
+                daily_db = DailySessionLocal()
+                cached = daily_db.query(DailyUpdate).filter(
+                    DailyUpdate.date == today_str,
+                    DailyUpdate.newsletters == nl_key,
+                ).order_by(DailyUpdate.created_at.desc()).first()
+                daily_db.close()
+                _log_step("", f"Cache {'HIT ✓' if cached else 'MISS'} | {time.time()-t1:.2f}s")
+    
+                if cached:
+                    headlines = json_module.loads(cached.headlines_json)
+                    logger.info(f"  [LATENCY]      Cache served {len(headlines)} headlines | {time.time()-t0:.2f}s")
+                    logger.info("─" * 55)
+                    return {"headlines": headlines, "newsletters": nl_key.split(","),
+                            "count": len(headlines), "is_today": True,
+                            "source": "cache", "message": None,
+                            "generated_at": cached.created_at.isoformat()}
 
-            if not all_emails:
-                _log_step("[STEP 4/5]", f"Fallback → querying last {days} days")
-                t4 = time.time()
-                fallback_msg = "📅 No new newsletters today. Showing the latest we have."
-                cutoff = datetime.utcnow() - timedelta(days=days)
-                db3 = NewsletterSessionLocal()
-                all_emails = query_emails_for_nl(db3, nl_list,
-                                                 extra_filter=Email.received_date >= cutoff,
-                                                 limit_each=3)
-                db3.close()
-                _log_step("", f"Fallback found {len(all_emails)} emails | {time.time()-t4:.2f}s")
-            else:
-                _log_step("[STEP 4/5]", "Skipped (today emails found)")
+                # Step 2: Check source.db for today
+                today_filter = sql_func.date(Newsletter.received_date) == today_str
+                _log_step("[STEP 2/5]", "Check source.db for today's emails")
+                t2 = time.time()
+                db = SourceSessionLocal()
+                today_emails = query_emails_for_nl(db, nl_list, extra_filter=today_filter)
+                db.close()
+                _log_step("", f"Found {len(today_emails)} emails | {time.time()-t2:.2f}s")
+    
+                # Step 3: Gmail sync if needed
+                if not today_emails:
+                    _log_step("[STEP 3/5]", "No today emails → syncing Gmail")
+                    t3 = time.time()
+                    fetch_and_sync_newsletters.invoke({"newsletter_names": newsletters})
+                    _log_step("", f"Gmail sync done | {time.time()-t3:.2f}s")
+                    db2 = SourceSessionLocal()
+                    today_emails = query_emails_for_nl(db2, nl_list, extra_filter=today_filter)
+                    db2.close()
+                    _log_step("", f"Post-sync: {len(today_emails)} emails in source.db")
+                else:
+                    _log_step("[STEP 3/5]", "Skipped (emails already in source.db)")
+
+                # Step 4: Fallback to recent emails
+                is_today     = len(today_emails) > 0
+                fallback_msg = None
+                all_emails   = today_emails
+    
+                if not all_emails:
+                    _log_step("[STEP 4/5]", f"Fallback → querying last {days} days")
+                    t4 = time.time()
+                    fallback_msg = "📅 No new newsletters today. Showing the latest we have."
+                    cutoff = datetime.utcnow() - timedelta(days=days)
+                    db3 = SourceSessionLocal()
+                    all_emails = query_emails_for_nl(db3, nl_list,
+                                                     extra_filter=Newsletter.received_date >= cutoff,
+                                                     limit_each=3)
+                    db3.close()
+                    _log_step("", f"Fallback found {len(all_emails)} emails | {time.time()-t4:.2f}s")
+                else:
+                    _log_step("[STEP 4/5]", "Skipped (today emails found)")
 
         # ── Shared: extract headlines via Gemini ──────────────────
-        if not all_emails:
-            logger.warning("  [RESULT]       No emails found — check config or newsletters")
+        if not all_emails and not yt_channels and not linkedin_profiles:
+            logger.warning("  [RESULT]       No sources found — check config")
             logger.info("─" * 55)
             return {"headlines": [], "newsletters": nl_list, "count": 0,
                     "is_today": False, "source": "none",
-                    "message": "No newsletters found. Check your configuration.",
+                    "message": "No sources found. Check your configuration.",
                     "generated_at": datetime.utcnow().isoformat()}
 
-        _log_step("[STEP 5/5]", f"Gemini extract_headlines on {len(all_emails)} emails")
+        _log_step("[STEP 5/5]", f"Gemini extract_headlines on DB content")
 
         t5 = time.time()
         combined = "\n\n---\n\n".join(
@@ -853,19 +928,69 @@ def today_updates(
             for e in all_emails[:8]
         )
 
-        # ── Append YouTube transcripts if channels provided ───────────
+        # ── Append YouTube transcripts — DB first, API fallback ──────
         if yt_channels:
             yt_urls = [u.strip() for u in yt_channels.split(",") if u.strip()]
-            _log_step("[YT]", f"Fetching transcripts for {len(yt_urls)} channel(s) via MCP")
+            _log_step("[YT]", f"Checking source.db for today's transcripts ({len(yt_urls)} channel(s))")
             t_yt = time.time()
-            yt_content = _call_mcp_tool("fetch_youtube_content", {"channel_urls": yt_channels})
-            if yt_content and "Error" not in yt_content and "No YouTube" not in yt_content:
+            yt_db = SourceSessionLocal()
+            cached_yt = yt_db.query(YouTubeTranscript).filter(
+                sql_func.date(YouTubeTranscript.published_at) == today_str
+            ).all()
+            yt_db.close()
+            if cached_yt:
+                _log_step("", f"source.db HIT ✓ — {len(cached_yt)} transcript(s) from DB | {time.time()-t_yt:.2f}s")
+                yt_content = "\n\n---\n\n".join(
+                    f"Channel: {r.channel}\nVideo: {r.title}\nURL: https://youtube.com/watch?v={r.video_id}\n\n{(r.transcript or '')[:4000]}"
+                    for r in cached_yt
+                )
                 combined += "\n\n---\n\n" + yt_content
-                _log_step("", f"YouTube content added via MCP | {time.time()-t_yt:.2f}s")
             else:
-                _log_step("", f"No YouTube transcripts fetched | {time.time()-t_yt:.2f}s")
+                _log_step("", f"source.db MISS — calling API | {time.time()-t_yt:.2f}s")
+                yt_content = _call_mcp_tool("fetch_youtube_content", {"channel_urls": yt_channels})
+                if yt_content and "Error" not in yt_content and "No YouTube" not in yt_content:
+                    combined += "\n\n---\n\n" + yt_content
+                    _log_step("", f"YouTube content added via API | {time.time()-t_yt:.2f}s")
+                else:
+                    _log_step("", f"No YouTube transcripts fetched | {time.time()-t_yt:.2f}s")
 
-        all_sources = newsletters + ("," + yt_channels if yt_channels else "")
+        # ── Append LinkedIn posts — DB first, API fallback ────────────
+        if linkedin_profiles:
+            handles = [h.strip() for h in linkedin_profiles.split(",") if h.strip()]
+            _log_step("[LI]", f"Checking source.db for today's posts ({len(handles)} profile(s))")
+            t_li = time.time()
+            lnkn_db = SourceSessionLocal()
+            li_content = []
+            for handle in handles:
+                cached_li = lnkn_db.query(LinkedInPost).filter(
+                    LinkedInPost.username == handle,
+                    LinkedInPost.posted_at.like(f"{today_str}%")
+                ).all()
+                if cached_li:
+                    _log_step("", f"source.db HIT ✓ — {len(cached_li)} post(s) for @{handle}")
+                    for r in cached_li:
+                        li_content.append(f"LinkedIn Profile: {handle}\nDate: {r.posted_at}\nLikes: {r.likes} Comments: {r.comments}\n\n{r.text}")
+                else:
+                    _log_step("", f"source.db MISS — calling API for @{handle}")
+                    posts = fetch_linkedin_posts(handle)
+                    for p in posts:
+                        posted_str = p.get('posted', {}).get('fullDate') if isinstance(p.get('posted'), dict) else str(p.get('posted', ''))
+                        exists = lnkn_db.query(LinkedInPost).filter(LinkedInPost.url == p['url']).first()
+                        if not exists:
+                            lnkn_db.add(LinkedInPost(
+                                username=p['username'], url=p['url'], text=p['text'],
+                                likes=p['likes'], comments=p['comments'], posted_at=posted_str
+                            ))
+                        li_content.append(f"LinkedIn Profile: {handle}\nDate: {posted_str}\nLikes: {p['likes']} Comments: {p['comments']}\n\n{p['text']}")
+            lnkn_db.commit()
+            lnkn_db.close()
+            if li_content:
+                combined += "\n\n---\n\n" + "\n\n---\n\n".join(li_content)
+                _log_step("", f"LinkedIn content added ({len(li_content)} posts) | {time.time()-t_li:.2f}s")
+            else:
+                _log_step("", f"No LinkedIn posts fetched | {time.time()-t_li:.2f}s")
+
+        all_sources = newsletters + ("," + yt_channels if yt_channels else "") + ("," + linkedin_profiles if linkedin_profiles else "")
         headlines = extract_headlines(combined, all_sources, req_id=req_id)
         _log_step("", f"Extracted {len(headlines)} headlines | {time.time()-t5:.2f}s")
 
@@ -913,8 +1038,9 @@ def available_dates(newsletters: str = Query(...)):
 @app.get("/calendar_updates")
 def calendar_updates(
     date:        str = Query(...),
-    newsletters: str = Query(...),
+    newsletters: str = Query(default=""),
     yt_channels: str = Query(default="", description="Comma-separated YouTube channel URLs"),
+    linkedin_profiles: str = Query(default="", description="Comma-separated LinkedIn profile handles"),
 ):
     try:
         target_date = datetime.strptime(date, "%Y-%m-%d").date()
@@ -923,7 +1049,7 @@ def calendar_updates(
 
     req_id  = datetime.utcnow().strftime("%H%M%S")
     nl_key  = ",".join(sorted(n.strip().lower() for n in newsletters.split(",") if n.strip()))
-    nl_list = nl_key.split(",")
+    nl_list = [n for n in nl_key.split(",") if n]
 
     logger.info("─" * 55)
     logger.info(f"  [REQUEST]      GET /calendar_updates  [{req_id}]")
@@ -949,33 +1075,33 @@ def calendar_updates(
                 "count": len(headlines), "source": "cache"}
     _log_step("", f"Cache MISS | {time.time()-t1:.2f}s")
 
-    # ── Step 2: Check local_gmail.db ─────────────────────────────
-    date_filter = sql_func.date(Email.received_date) == target_date.isoformat()
-    _log_step("[STEP 2/4]", f"Check local_gmail.db for {date}")
+    # ── Step 2: Check source.db ────────────────────────────────────────
+    date_filter = sql_func.date(Newsletter.received_date) == target_date.isoformat()
+    _log_step("[STEP 2/4]", f"Check source.db for {date}")
     t2 = time.time()
-    db = NewsletterSessionLocal()
-    all_emails = query_emails_for_nl(db, nl_list, extra_filter=date_filter, limit_each=5)
+    db = SourceSessionLocal()
+    all_emails = query_emails_for_nl(db, nl_list, extra_filter=date_filter, limit_each=5) if nl_list else []
     db.close()
     _log_step("", f"Found {len(all_emails)} emails | {time.time()-t2:.2f}s")
 
     # ── Step 3: Gmail sync if recent ─────────────────────────────
-    if not all_emails and target_date >= (datetime.utcnow().date() - timedelta(days=30)):
+    if nl_list and not all_emails and target_date >= (datetime.utcnow().date() - timedelta(days=30)):
         _log_step("[STEP 3/4]", f"No emails → syncing Gmail for {date}")
         t3 = time.time()
-        _call_mcp_tool("fetch_gmail_newsletters", {"newsletter_names": f"{newsletters}|date:{date}"})
+        _call_mcp_tool("fetch_gmail_newsletters", {"newsletter_names": f"{nl_key}|date:{date}"})
         _log_step("", f"Gmail sync done | {time.time()-t3:.2f}s")
-        db2 = NewsletterSessionLocal()
+        db2 = SourceSessionLocal()
         all_emails = query_emails_for_nl(db2, nl_list, extra_filter=date_filter, limit_each=5)
         db2.close()
         _log_step("", f"Post-sync: {len(all_emails)} emails")
     else:
-        _log_step("[STEP 3/4]", "Skipped" if all_emails else "Skipped (date too old for Gmail sync)")
+        _log_step("[STEP 3/4]", "Skipped" if all_emails else "Skipped (no newsletters or date too old)")
 
-    if not all_emails:
-        logger.info(f"  [RESULT]       No emails for {date}")
+    if not all_emails and not yt_channels and not linkedin_profiles:
+        logger.info(f"  [RESULT]       No sources for {date}")
         logger.info("─" * 55)
         return {"headlines": [], "date": date, "newsletters": nl_list,
-                "count": 0, "source": "none", "message": f"No newsletters found for {date}."}
+                "count": 0, "source": "none", "message": f"No sources found for {date}."}
 
     # ── Step 4: Extract headlines ─────────────────────────────────
     _log_step("[STEP 4/4]", f"Gemini extract_headlines on {len(all_emails)} emails")
@@ -986,17 +1112,67 @@ def calendar_updates(
     ]
     combined_cal = "\n\n---\n\n".join(parts)
 
-    # Append YouTube transcripts if channels provided
+    # ── Append YouTube transcripts — DB first, API fallback ──
     if yt_channels:
         yt_urls = [u.strip() for u in yt_channels.split(",") if u.strip()]
-        _log_step("[YT]", f"Fetching {len(yt_urls)} YouTube transcript(s) via MCP")
+        _log_step("[YT]", f"Checking source.db for {date} ({len(yt_urls)} channel(s))")
         t_yt = time.time()
-        yt_content = _call_mcp_tool("fetch_youtube_content", {"channel_urls": yt_channels})
-        if yt_content and "Error" not in yt_content and "No YouTube" not in yt_content:
+        yt_db = SourceSessionLocal()
+        cached_yt = yt_db.query(YouTubeTranscript).filter(
+            sql_func.date(YouTubeTranscript.published_at) == date
+        ).all()
+        yt_db.close()
+        if cached_yt:
+            _log_step("", f"source.db HIT ✓ — {len(cached_yt)} transcript(s) | {time.time()-t_yt:.2f}s")
+            yt_content = "\n\n---\n\n".join(
+                f"Channel: {r.channel}\nVideo: {r.title}\nURL: https://youtube.com/watch?v={r.video_id}\n\n{(r.transcript or '')[:4000]}"
+                for r in cached_yt
+            )
             combined_cal += "\n\n---\n\n" + yt_content
-            _log_step("", f"YouTube content added via MCP | {time.time()-t_yt:.2f}s")
+        else:
+            _log_step("", f"source.db MISS — calling API | {time.time()-t_yt:.2f}s")
+            yt_content = _call_mcp_tool("fetch_youtube_content", {"channel_urls": yt_channels})
+            if yt_content and "Error" not in yt_content and "No YouTube" not in yt_content:
+                combined_cal += "\n\n---\n\n" + yt_content
+                _log_step("", f"YouTube content added via API | {time.time()-t_yt:.2f}s")
 
-    all_sources_cal = newsletters + ("," + yt_channels if yt_channels else "")
+    # ── Append LinkedIn posts — DB first, API fallback ──
+    if linkedin_profiles:
+        handles = [h.strip() for h in linkedin_profiles.split(",") if h.strip()]
+        _log_step("[LI]", f"Checking source.db for {date} posts ({len(handles)} profile(s))")
+        t_li = time.time()
+        lnkn_db = SourceSessionLocal()
+        li_content = []
+        for handle in handles:
+            cached_li = lnkn_db.query(LinkedInPost).filter(
+                LinkedInPost.username == handle,
+                LinkedInPost.posted_at.like(f"{date}%")
+            ).all()
+            if cached_li:
+                _log_step("", f"source.db HIT ✓ — {len(cached_li)} post(s) for @{handle}")
+                for r in cached_li:
+                    li_content.append(f"LinkedIn Profile: {handle}\nDate: {r.posted_at}\nLikes: {r.likes} Comments: {r.comments}\n\n{r.text}")
+            else:
+                _log_step("", f"source.db MISS — calling API for @{handle}")
+                posts = fetch_linkedin_posts(handle)
+                for p in posts:
+                    posted_str = p.get('posted', {}).get('fullDate') if isinstance(p.get('posted'), dict) else str(p.get('posted', ''))
+                    exists = lnkn_db.query(LinkedInPost).filter(LinkedInPost.url == p['url']).first()
+                    if not exists:
+                        lnkn_db.add(LinkedInPost(
+                            username=p['username'], url=p['url'], text=p['text'],
+                            likes=p['likes'], comments=p['comments'], posted_at=posted_str
+                        ))
+                    li_content.append(f"LinkedIn Profile: {handle}\nDate: {posted_str}\nLikes: {p['likes']} Comments: {p['comments']}\n\n{p['text']}")
+        lnkn_db.commit()
+        lnkn_db.close()
+        if li_content:
+            combined_cal += "\n\n---\n\n" + "\n\n---\n\n".join(li_content)
+            _log_step("", f"LinkedIn content added ({len(li_content)} posts) | {time.time()-t_li:.2f}s")
+        else:
+            _log_step("", f"No LinkedIn posts fetched | {time.time()-t_li:.2f}s")
+
+    all_sources_cal = newsletters + ("," + yt_channels if yt_channels else "") + ("," + linkedin_profiles if linkedin_profiles else "")
     headlines = extract_headlines(combined_cal, all_sources_cal, req_id=req_id)
     _log_step("", f"Extracted {len(headlines)} headlines | {time.time()-t4:.2f}s")
 
@@ -1144,3 +1320,7 @@ def get_credentials(service: str = Query(...)):
     creds = db.query(ConnectorCredential).filter_by(service=service).all()
     db.close()
     return {c.key_name: c.value for c in creds}
+
+# ── Serve frontend static files (must be last) ────────────────
+if os.path.exists("frontend"):
+    app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")

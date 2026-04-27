@@ -1,0 +1,16 @@
+
+We need to update GMAIL_REFRESH_TOKEN key in env , to do that 
+
+Steps :
+
+1.Get  client_id and client_secret go to google cloud console ---> select api and services ---> select credientials ----> select the webclient ---> you can find the keys
+2.Enable Gmail API in Library in API and Services
+3.After getting the keys open oauth playground and under settings enable to use own client credentials, share it over there
+4.Paste this URL "https://www.googleapis.com/auth/gmail.readonly" and get the acess and refresh tokens. Paste refresh token in env.
+5.Refresh token expires in 1 hour, so we need to refresh it every hour.
+6.We can test the endpoints to check are we able to read from the Gmail.
+
+https://gmail.googleapis.com/gmail/v1/users/me/messages?q=label:Newsletters - To get list of newsletters
+https://gmail.googleapis.com/gmail/v1/users/me/messages/18c9f1b0a1b9f1c2?format=full - To get content of a particular thread id
+
+7.All steps done now we can test the server.

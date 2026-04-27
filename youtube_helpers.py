@@ -1,5 +1,15 @@
 """
 youtube_helpers.py — YouTube channel, video, and transcript utilities for TechTracker MCP.
+
+FUNCTIONS DEFINED & USAGE:
+  channel_label(url)                        → used by: fetch_channel_content()
+  get_channel_id(channel_url)               → used by: fetch_channel_content()
+  get_latest_video_id(channel_id)           → used by: fetch_channel_content()
+  get_video_title(channel_id, video_id)     → used by: fetch_channel_content()
+  get_transcript(video_id, max_chars)       → used by: fetch_channel_content()
+  fetch_channel_content(channel_url)        → used by: mcp_server.py → fetch_youtube_content tool
+
+ALL functions are in use. No dead code.
 """
 import re
 import logging
@@ -12,8 +22,8 @@ import requests
 from youtube_transcript_api import YouTubeTranscriptApi
 
 from gmail_helpers import get_credential
-from database import NewsletterSessionLocal
-from models import Email
+from database import SourceSessionLocal
+from models import YouTubeTranscript
 
 logger = logging.getLogger("TechTracker.MCP")
 
@@ -112,14 +122,14 @@ def fetch_channel_content(channel_url: str) -> str:
     if not video_id:
         return f"{label}: No suitable video found."
 
-    db = NewsletterSessionLocal()
-    existing = db.query(Email).filter_by(message_id=f"yt:{video_id}").first()
+    db = SourceSessionLocal()
+    existing = db.query(YouTubeTranscript).filter_by(video_id=video_id).first()
     if existing:
         db.close()
         logger.info(f"[YOUTUBE] {label}: transcript from DB cache | {time.time()-t0:.2f}s")
         return (
-            f"Channel: {label}\nVideo: {existing.subject}\n\n"
-            f"{(existing.clean_text or '')[:3000]}"
+            f"Channel: {label}\nVideo: {existing.title}\n\n"
+            f"{(existing.transcript or '')[:3000]}"
         )
 
     t_tr = time.time()
@@ -133,10 +143,12 @@ def fetch_channel_content(channel_url: str) -> str:
         f"Video: {title}\nURL: {video_url}\n\n{transcript_text}"
     )
 
-    db.add(Email(
-        message_id=f"yt:{video_id}", subject=title,
-        sender=f"YouTube: {label}", received_date=datetime.utcnow(),
-        raw_html=None, clean_text=clean, summary=None, processed=True,
+    db.add(YouTubeTranscript(
+        video_id=video_id,
+        channel=label,
+        title=title,
+        transcript=clean,
+        published_at=datetime.utcnow()
     ))
     db.commit()
     db.close()

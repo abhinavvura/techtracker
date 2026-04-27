@@ -103,6 +103,17 @@
           <h2 class="hero-headline">Ready for today's<br /><span class="grad">tech briefing?</span></h2>
           <p class="hero-sub">Instant summaries from your configured newsletters.<br />Hover any item — then click ✨ to
             deep-dive with AI.</p>
+          
+          <div class="source-selector">
+            <span style="font-size:0.9rem; color:var(--text-muted); margin-right: 8px;">Fetch from:</span>
+            <select id="updateSourceSelect" class="pref-select" style="max-width:200px; display:inline-block; padding: 6px 12px; margin-bottom: 15px;">
+              <option value="all" selected>All Configured</option>
+              <option value="newsletters">Newsletters Only</option>
+              <option value="youtube">YouTube Only</option>
+              <option value="linkedin">LinkedIn Only</option>
+            </select>
+          </div>
+
           <button class="get-updates-btn" id="getUpdatesBtn">
             <span id="getUpdatesBtnText">⚡ Get Today's Updates</span>
             <span class="spinner hidden" id="updatesSpinner"></span>
@@ -154,6 +165,15 @@
       <header class="panel-header">
         <div class="panel-title"><span class="panel-icon">📅</span>
           <h1>Calendar</h1>
+        </div>
+        <div class="source-selector-wrap" style="display:flex;align-items:center;gap:8px;margin-left:auto;">
+          <label for="calSourceSelect" style="font-size:0.78rem;color:var(--text-muted);white-space:nowrap;">Fetch from:</label>
+          <select id="calSourceSelect" class="source-select" title="Data source for calendar updates">
+            <option value="all">All Sources</option>
+            <option value="newsletters">📧 Newsletter</option>
+            <option value="youtube">▶️ YouTube</option>
+            <option value="linkedin">💼 LinkedIn</option>
+          </select>
         </div>
       </header>
       <div class="calendar-content">
@@ -270,6 +290,33 @@
               <polyline points="20 6 9 17 4 12" />
             </svg>
             Save YouTube Channels
+          </button>
+        </div>
+
+        <!-- LinkedIn Profiles -->
+        <div class="config-card">
+          <h3>🔗 LinkedIn Profiles</h3>
+          <p class="config-card-desc">TechTracker will fetch the latest posts from these LinkedIn profiles (must have LinkdAPI configured).</p>
+          <div class="config-pills" id="liPills"></div>
+          <div class="config-empty-hint hidden" id="liEmptyHint">No profiles yet — paste a LinkedIn profile URL below ↓
+          </div>
+          <div class="config-input-row">
+            <input id="liInput" class="config-input" type="url" placeholder="https://www.linkedin.com/in/username" autocomplete="off" />
+            <button class="config-add-btn" id="liAddBtn">Add</button>
+          </div>
+          <div class="config-suggestions">
+            <p class="suggestion-label">Popular profiles:</p>
+            <div class="suggestion-chips">
+              <button class="s-chip li-chip" data-url="https://www.linkedin.com/in/satyanadella/">Satya Nadella</button>
+              <button class="s-chip li-chip" data-url="https://www.linkedin.com/in/ryanroslansky/">Ryan Roslansky</button>
+              <button class="s-chip li-chip" data-url="https://www.linkedin.com/in/williamhgates/">Bill Gates</button>
+            </div>
+          </div>
+          <button class="save-btn" id="saveLiBtn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            Save LinkedIn Profiles
           </button>
         </div>
 

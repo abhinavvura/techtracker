@@ -1,14 +1,15 @@
 """
-models.py  — SQLAlchemy ORM models for all three databases.
+models.py  — SQLAlchemy ORM models.
+Content models (Newsletter, YouTubeTranscript, LinkedInPost) all live in source.db.
 """
 from sqlalchemy import Column, String, Text, DateTime, Boolean, Integer
 from datetime import datetime
 from database import Base
 
 
-# ── newsletters.db ─────────────────────────────────────────────
-class Email(Base):
-    __tablename__ = "emails"
+# ── source.db: newsletters table ──────────────────────────────
+class Newsletter(Base):
+    __tablename__ = "newsletters"
 
     message_id   = Column(String, primary_key=True, index=True)
     subject      = Column(String)
@@ -19,6 +20,19 @@ class Email(Base):
     summary      = Column(Text)
     processed    = Column(Boolean, default=False)
     created_at   = Column(DateTime, default=datetime.utcnow)
+
+
+# ── source.db: youtube_transcripts table ─────────────────────
+class YouTubeTranscript(Base):
+    __tablename__ = "youtube_transcripts"
+
+    video_id     = Column(String, primary_key=True, index=True)
+    channel      = Column(String, index=True)
+    title        = Column(String)
+    transcript   = Column(Text)
+    published_at = Column(DateTime)
+    created_at   = Column(DateTime, default=datetime.utcnow)
+
 
 
 # ── chat_history.db ────────────────────────────────────────────
@@ -62,4 +76,17 @@ class ConnectorCredential(Base):
     key_name   = Column(String, index=True)  # 'client_id', 'api_key', etc.
     value      = Column(Text)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+# ── source.db: linkedin_posts table ──────────────────────────
+class LinkedInPost(Base):
+    __tablename__ = "linkedin_posts"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    username   = Column(String, index=True)
+    url        = Column(String, unique=True, index=True)
+    text       = Column(Text)
+    likes      = Column(Integer)
+    comments   = Column(Integer)
+    posted_at  = Column(String)  # ISO string from API
+    created_at = Column(DateTime, default=datetime.utcnow)
 

@@ -1,38 +1,18 @@
-# ── TechTracker specific ─────────────────────────────────────────
+# Environment
 .env
-data/
 *.log
-notes.txt
 
-# ── Python ───────────────────────────────────────────────────────
+# Python
 __pycache__/
-*.py[oc]
+*.pyc
 *.pyo
-
-# ── Virtual environments ─────────────────────────────────────────
 .venv/
 venv/
-env/
-
-# ── Build / packaging ────────────────────────────────────────────
-build/
-dist/
 *.egg-info/
-wheels/
 
-# ── uv ───────────────────────────────────────────────────────────
-# uv.lock is intentionally committed for reproducibility
+# Databases (local only)
+data/*.db
 
-# ── Testing / coverage ───────────────────────────────────────────
-.pytest_cache/
-.coverage
-htmlcov/
-
-# ── Type checkers ────────────────────────────────────────────────
-.mypy_cache/
-.ruff_cache/
-
-# ── IDEs ─────────────────────────────────────────────────────────
+# IDE
 .vscode/
 .idea/
-*.cursorignore

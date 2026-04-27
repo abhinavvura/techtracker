@@ -2,7 +2,7 @@
 database.py — SQLAlchemy engine / session / Base definitions.
 
 All databases live in the data/ folder:
-  data/local_gmail.db   — raw emails fetched from Gmail + YouTube transcripts
+  data/source.db        — All content: newsletters, YouTube transcripts, LinkedIn posts
   data/chat_history.db  — AI chat conversations
   data/daily_updates.db — daily headline snapshots (cache)
   data/user_data.db     — connector credentials (Gmail OAuth, YouTube API key)
@@ -16,9 +16,9 @@ os.makedirs("data", exist_ok=True)
 
 Base = declarative_base()
 
-# ── 1. Gmail / Newsletter database ─────────────────────────────
-newsletter_engine      = create_engine("sqlite:///./data/local_gmail.db",   connect_args={"check_same_thread": False})
-NewsletterSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=newsletter_engine)
+# ── 1. Unified source database (newsletters + YouTube + LinkedIn) ──
+source_engine      = create_engine("sqlite:///./data/source.db", connect_args={"check_same_thread": False})
+SourceSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=source_engine)
 
 # ── 2. Chat history database ────────────────────────────────────
 chat_engine      = create_engine("sqlite:///./data/chat_history.db",  connect_args={"check_same_thread": False})

@@ -36,7 +36,7 @@ mcp = FastMCP("TechTracker MCP 🚀")
 @mcp.tool
 def fetch_gmail_newsletters(newsletter_names: str) -> str:
     """
-    Fetches newsletters from the Gmail API and saves new ones to local_gmail.db.
+    Fetches newsletters from the Gmail API and saves new ones to source.db.
     Input: comma-separated newsletter names or sender keywords.
     Optionally append '|date:YYYY-MM-DD' to scope the fetch to a specific day.
     Example: 'tldr,alphasignal|date:2026-04-09'
@@ -61,7 +61,7 @@ def fetch_gmail_newsletters(newsletter_names: str) -> str:
 def fetch_youtube_content(channel_urls: str) -> str:
     """
     Fetches the latest non-Shorts YouTube video transcript from one or more channels
-    and stores them in local_gmail.db.
+    and stores them in source.db.
     Input: comma-separated YouTube channel URLs.
     Returns: channel name, video title, and transcript text for each channel.
     """

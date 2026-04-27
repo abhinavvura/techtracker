@@ -1345,6 +1345,20 @@ wheels = [
 ]
 
 [[package]]
+name = "linkedin-api"
+version = "2.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "beautifulsoup4" },
+    { name = "lxml" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b7/93/9ac25a7e651f0ae7f315606c7823cd252cb267bdb7061090276c7dd73f7d/linkedin_api-2.2.0.tar.gz", hash = "sha256:a7be3dc950820b08b1eee0cf3517ce36cd47cb61836e1fb8c40115854acf84b5", size = 30875, upload-time = "2024-08-27T22:45:54.751Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e0/2e/baa860975c4121a5492d4216b0551850590fc6f4a8dd4d48f0d0bf678ac4/linkedin_api-2.2.0-py3-none-any.whl", hash = "sha256:2a6ff6d66cb6dd2badaa5987c1dbeaf777d3348358765e0dc6c23df425e6864f", size = 24529, upload-time = "2024-08-27T22:45:50.35Z" },
+]
+
+[[package]]
 name = "lxml"
 version = "6.0.2"
 source = { registry = "https://pypi.org/simple" }
@@ -2590,6 +2604,7 @@ dependencies = [
     { name = "langchain" },
     { name = "langchain-community" },
     { name = "langchain-google-genai" },
+    { name = "linkedin-api" },
     { name = "lxml" },
     { name = "python-dotenv" },
     { name = "regex" },
@@ -2613,6 +2628,7 @@ requires-dist = [
     { name = "langchain", specifier = ">=1.2.10" },
     { name = "langchain-community", specifier = ">=0.4.1" },
     { name = "langchain-google-genai", specifier = ">=4.2.1" },
+    { name = "linkedin-api", specifier = ">=2.2.0" },
     { name = "lxml", specifier = ">=6.0.2" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "regex", specifier = "==2026.2.28" },

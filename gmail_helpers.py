@@ -1,5 +1,17 @@
 """
 gmail_helpers.py — Gmail OAuth + email parsing utilities for TechTracker MCP.
+
+FUNCTIONS DEFINED & USAGE:
+  get_credential(service, key_name)         → used by: get_access_token(), youtube_helpers.py (get_credential import)
+  get_access_token()                        → used by: sync_newsletters()
+  decode_base64url(data)                    → used by: extract_html()
+  extract_html(payload)                     → used by: sync_newsletters()
+  clean_html(html)                          → used by: sync_newsletters()
+  sync_newsletters(newsletter_names, date)  → used by: mcp_server.py → fetch_gmail_newsletters tool
+  search_newsletters_db(query)              → used by: main.py → search_newsletters_db LangChain tool (Updates Agent)
+  search_gmail_db_for_context(query)        → used by: main.py → search_gmail_db_for_context LangChain tool (Chat Agent)
+
+ALL functions are in use. No dead code.
 """
 import os
 import re
@@ -12,8 +24,8 @@ from typing import Optional
 import requests
 from bs4 import BeautifulSoup
 
-from database import NewsletterSessionLocal, UserDataSessionLocal
-from models import ConnectorCredential, Email
+from database import SourceSessionLocal, UserDataSessionLocal
+from models import ConnectorCredential, Newsletter
 
 logger = logging.getLogger("TechTracker.MCP")
 
@@ -95,7 +107,7 @@ def clean_html(html: str) -> str:
 
 def sync_newsletters(newsletter_names: str, target_date: str = None) -> str:
     """
-    Fetch newsletters from Gmail and save new ones to local_gmail.db.
+    Fetch newsletters from Gmail and save new ones to source.db.
     target_date: optional YYYY-MM-DD to scope the Gmail query to that day.
     Without it, fetches the latest 20 messages.
     """
@@ -126,13 +138,13 @@ def sync_newsletters(newsletter_names: str, target_date: str = None) -> str:
     if not messages:
         return f"No newsletters found in Gmail for '{newsletter_names}'."
 
-    db = NewsletterSessionLocal()
+    db = SourceSessionLocal()
     new_count, already = 0, 0
     found_senders: set = set()
 
     for msg in messages:
         mid = msg["id"]
-        if db.query(Email).filter_by(message_id=mid).first():
+        if db.query(Newsletter).filter_by(message_id=mid).first():
             already += 1
             continue
         t_msg = time.time()
@@ -146,7 +158,7 @@ def sync_newsletters(newsletter_names: str, target_date: str = None) -> str:
         html    = extract_html(payload)
         sender  = hdrs.get("From", "Unknown")
         found_senders.add(sender)
-        db.add(Email(
+        db.add(Newsletter(
             message_id=mid,
             subject=hdrs.get("Subject"),
             sender=sender,
@@ -168,7 +180,7 @@ def sync_newsletters(newsletter_names: str, target_date: str = None) -> str:
 
 def search_newsletters_db(query: str) -> str:
     """
-    Search local_gmail.db for newsletters matching query across subject/summary/sender.
+    Search source.db for newsletters matching query across subject/summary/sender.
     Returns a formatted list of matches with IDs, subjects, dates, and summaries.
     """
     logger.info(f"[GMAIL] search_newsletters_db: {query[:80]}")
@@ -180,14 +192,14 @@ def search_newsletters_db(query: str) -> str:
     if not keywords:
         return f"Query '{query}' is too vague. Please provide a newsletter name."
 
-    db = NewsletterSessionLocal()
+    db = SourceSessionLocal()
     seen, results = set(), []
     for kw in keywords:
-        for r in db.query(Email).filter(
-            Email.subject.ilike(f"%{kw}%") |
-            Email.summary.ilike(f"%{kw}%") |
-            Email.sender.ilike(f"%{kw}%")
-        ).order_by(Email.received_date.desc()).limit(10).all():
+        for r in db.query(Newsletter).filter(
+            Newsletter.subject.ilike(f"%{kw}%") |
+            Newsletter.summary.ilike(f"%{kw}%") |
+            Newsletter.sender.ilike(f"%{kw}%")
+        ).order_by(Newsletter.received_date.desc()).limit(10).all():
             if r.message_id not in seen:
                 results.append(r)
                 seen.add(r.message_id)
@@ -208,7 +220,7 @@ def search_newsletters_db(query: str) -> str:
 
 def search_gmail_db_for_context(query: str) -> str:
     """
-    Search local_gmail.db for newsletter content related to a query.
+    Search source.db for newsletter content related to a query.
     Searches clean_text, subject, and summary. Returns rich snippets with URLs.
     Call this before any web search.
     """
@@ -217,21 +229,21 @@ def search_gmail_db_for_context(query: str) -> str:
     if not keywords:
         keywords = [query[:50]]
 
-    db = NewsletterSessionLocal()
+    db = SourceSessionLocal()
     seen, matching = set(), []
     for kw in keywords[:6]:
-        for r in db.query(Email).filter(
-            Email.clean_text.ilike(f"%{kw}%") |
-            Email.subject.ilike(f"%{kw}%") |
-            Email.summary.ilike(f"%{kw}%")
-        ).order_by(Email.received_date.desc()).limit(4).all():
+        for r in db.query(Newsletter).filter(
+            Newsletter.clean_text.ilike(f"%{kw}%") |
+            Newsletter.subject.ilike(f"%{kw}%") |
+            Newsletter.summary.ilike(f"%{kw}%")
+        ).order_by(Newsletter.received_date.desc()).limit(4).all():
             if r.message_id not in seen:
                 matching.append(r)
                 seen.add(r.message_id)
     db.close()
 
     if not matching:
-        return "No relevant content found in local_gmail.db for this query."
+        return "No relevant content found in source.db for this query."
 
     blocks = []
     for r in matching[:4]:

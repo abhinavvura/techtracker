@@ -3,11 +3,12 @@
    API: http://localhost:8001
 ============================================================= */
 
-const API = 'http://localhost:8001';
+const API = '';
 const LS_NL = 'techtracker_newsletters';
 const LS_LB = 'techtracker_lookback';
 const LS_THEME = 'techtracker_theme';
 const LS_YT = 'techtracker_yt_channels';   // YouTube channel URLs
+const LS_LI = 'techtracker_li_profiles';   // LinkedIn profiles
 
 // ── DOM refs ──────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -61,6 +62,13 @@ const ytInput = $('ytInput');
 const ytAddBtn = $('ytAddBtn');
 const saveYtBtn = $('saveYtBtn');
 
+// LinkedIn configure
+const liPills = $('liPills');
+const liEmptyHint = $('liEmptyHint');
+const liInput = $('liInput');
+const liAddBtn = $('liAddBtn');
+const saveLiBtn = $('saveLiBtn');
+
 // Connectors
 const gmailClientId = $('gmailClientId');
 const gmailClientSecret = $('gmailClientSecret');
@@ -91,6 +99,7 @@ const chatClear = $('chatClear');
 // ── State ─────────────────────────────────────────────────────
 let configuredNewsletters = [];
 let ytChannels = [];   // YouTube channel URLs
+let liProfiles = [];   // LinkedIn profile handles
 let sidebarCollapsed = false;
 let isDark = true;
 let chatMsgCount = 0;
@@ -152,8 +161,11 @@ function loadConfig() {
     // YouTube channels
     const ytSaved = localStorage.getItem(LS_YT);
     ytChannels = ytSaved ? JSON.parse(ytSaved) : [];
+    const liSaved = localStorage.getItem(LS_LI);
+    liProfiles = liSaved ? JSON.parse(liSaved) : [];
     renderConfigPills();
     renderYtPills();
+    renderLiPills();
     renderNlPreview();
     updateHeroHint();
 }
@@ -273,17 +285,29 @@ function bindUpdatesTab() {
 }
 
 async function fetchTodayUpdates() {
-    if (!configuredNewsletters.length) {
-        showToast('⚠️ Configure newsletters first!');
+    if (!configuredNewsletters.length && !ytChannels.length && !liProfiles.length) {
+        showToast('⚠️ Configure some sources first!');
         switchTab('configure');
         return;
     }
     setUpdatesLoading(true, false);
     try {
         const url = new URL(`${API}/today_updates`);
-        url.searchParams.set('newsletters', configuredNewsletters.join(','));
+        
+        const source = $('updateSourceSelect')?.value || 'all';
+        let nlToPass = configuredNewsletters.join(',');
+        let ytToPass = ytChannels.join(',');
+        let liToPass = liProfiles.join(',');
+
+        if (source === 'newsletters') { ytToPass = ''; liToPass = ''; }
+        if (source === 'youtube')     { nlToPass = ''; liToPass = ''; }
+        if (source === 'linkedin')    { nlToPass = ''; ytToPass = ''; }
+        
+        url.searchParams.set('newsletters', nlToPass);
         url.searchParams.set('days', lookbackSelect.value);
-        if (ytChannels.length) url.searchParams.set('yt_channels', ytChannels.join(','));
+        if (ytToPass) url.searchParams.set('yt_channels', ytToPass);
+        if (liToPass) url.searchParams.set('linkedin_profiles', liToPass);
+
         const res = await fetch(url);
         if (!res.ok) throw new Error(`Server ${res.status}`);
         const data = await res.json();
@@ -424,19 +448,27 @@ async function selectCalDate(dateStr) {
     calSelectedDate = dateStr;
     renderCalendar();
 
-    if (!configuredNewsletters.length) {
-        showToast('⚠️ Configure newsletters first!'); switchTab('configure'); return;
-    }
-
     const loadingEl = $('calLoading');
-    const hintEl = $('calSidebarHint');
     if (loadingEl) loadingEl.classList.remove('hidden');
 
     try {
         const url = new URL(`${API}/calendar_updates`);
         url.searchParams.set('date', dateStr);
-        url.searchParams.set('newsletters', configuredNewsletters.join(','));
-        if (ytChannels.length) url.searchParams.set('yt_channels', ytChannels.join(','));
+
+        // Source selector — default to 'all'
+        const src = $('calSourceSelect')?.value || 'all';
+        let nlToPass = configuredNewsletters.join(',');
+        let ytToPass = ytChannels.join(',');
+        let liToPass = liProfiles.join(',');
+
+        if (src === 'newsletters') { ytToPass = ''; liToPass = ''; }
+        if (src === 'youtube')     { nlToPass = ''; liToPass = ''; }
+        if (src === 'linkedin')    { nlToPass = ''; ytToPass = ''; }
+
+        url.searchParams.set('newsletters', nlToPass);
+        if (ytToPass) url.searchParams.set('yt_channels', ytToPass);
+        if (liToPass) url.searchParams.set('linkedin_profiles', liToPass);
+
         const res = await fetch(url);
         if (!res.ok) throw new Error(`Server ${res.status}`);
         const data = await res.json();
@@ -458,11 +490,8 @@ async function selectCalDate(dateStr) {
             calFeedSource.classList.remove('hidden');
         }
 
-        // If this date has data, add to avail set
         if (data.headlines.length > 0) calAvailDates.add(dateStr);
         renderCalendar();
-
-        // Scroll to feed
         calendarFeed.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (e) {
         showToast(`❌ ${e.message}`);
@@ -807,7 +836,7 @@ function bindConfigureTab() {
     configInput.addEventListener('blur', addInput);
     configAddBtn.addEventListener('click', addInput);
 
-    document.querySelectorAll('.s-chip:not(.yt-chip)').forEach(c =>
+    document.querySelectorAll('.s-chip:not(.yt-chip):not(.li-chip)').forEach(c =>
         c.addEventListener('click', () => { addCfgNl(c.dataset.nl); updateSuggestionChips(); })
     );
     saveConfigBtn.addEventListener('click', saveConfig);
@@ -828,6 +857,22 @@ function bindConfigureTab() {
         c.addEventListener('click', () => addYtChannel(c.dataset.url))
     );
     saveYtBtn.addEventListener('click', saveYtChannels);
+
+    // LinkedIn profiles
+    const addLiInput = () => {
+        const v = liInput.value.trim();
+        if (v) { addLiProfile(v); liInput.value = ''; }
+    };
+    liInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); addLiInput(); }
+    });
+    liInput.addEventListener('blur', addLiInput);
+    liAddBtn.addEventListener('click', addLiInput);
+
+    document.querySelectorAll('.li-chip').forEach(c =>
+        c.addEventListener('click', () => addLiProfile(c.dataset.url))
+    );
+    saveLiBtn.addEventListener('click', saveLiProfiles);
 }
 
 // YouTube channel helpers
@@ -861,6 +906,44 @@ function renderYtPills() {
 function saveYtChannels() {
     localStorage.setItem(LS_YT, JSON.stringify(ytChannels));
     showToast('✅ YouTube channels saved!');
+}
+
+// LinkedIn profile helpers
+function extractLiUsername(url) {
+    const match = url.match(/\/in\/([a-zA-Z0-9_-]+)/);
+    return match ? match[1] : url;
+}
+
+function addLiProfile(url) {
+    url = url.trim();
+    if (!url) return;
+    const username = extractLiUsername(url);
+    if (!username || liProfiles.includes(username)) return;
+    liProfiles.push(username);
+    renderLiPills();
+}
+
+function removeLiProfile(username) {
+    liProfiles = liProfiles.filter(p => p !== username);
+    renderLiPills();
+}
+
+function renderLiPills() {
+    if (!liPills) return;
+    liPills.innerHTML = '';
+    liEmptyHint.classList.toggle('hidden', liProfiles.length > 0);
+    liProfiles.forEach(username => {
+        const el = document.createElement('div');
+        el.className = 'cfg-pill li';
+        el.innerHTML = `<span>🔗 ${esc(username)}</span><button class="cfg-pill-remove" title="Remove">×</button>`;
+        el.querySelector('.cfg-pill-remove').onclick = () => removeLiProfile(username);
+        liPills.appendChild(el);
+    });
+}
+
+function saveLiProfiles() {
+    localStorage.setItem(LS_LI, JSON.stringify(liProfiles));
+    showToast('✅ LinkedIn profiles saved!');
 }
 
 // ═══════════════════════════════════════════════════════════════
