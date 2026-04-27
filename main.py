@@ -745,7 +745,7 @@ GREETINGS = {
 }
 
 
-@app.get("/")
+@app.get("/api")
 def root():
     return {
         "service": "TechTracker AI",
