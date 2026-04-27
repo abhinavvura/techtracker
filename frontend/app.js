@@ -3,7 +3,7 @@
    API: http://localhost:8001
 ============================================================= */
 
-const API = '';
+const API = window.location.origin;
 const LS_NL = 'techtracker_newsletters';
 const LS_LB = 'techtracker_lookback';
 const LS_THEME = 'techtracker_theme';
