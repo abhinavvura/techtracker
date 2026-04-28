@@ -126,12 +126,14 @@ def sync_newsletters(newsletter_names: str, target_date: str = None) -> str:
         query  = f"({query}) after:{after} before:{before}"
 
     t_api = time.time()
+    logger.info(f"[GMAIL] Query sent to API: '{query}'")
     resp = requests.get(
         f"{GMAIL_API}/users/me/messages",
         headers={"Authorization": f"Bearer {token}"},
         params={"q": query, "maxResults": 20},
         timeout=15,
     )
+    logger.info(f"[GMAIL] API status: {resp.status_code} | Raw response: {resp.text[:300]}")
     messages = resp.json().get("messages", [])
     logger.info(f"[GMAIL] Gmail list API: {len(messages)} messages | {time.time()-t_api:.2f}s")
 

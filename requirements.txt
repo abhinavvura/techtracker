@@ -3,6 +3,7 @@ uvicorn
 requests
 python-dotenv
 sqlalchemy
+psycopg2-binary
 beautifulsoup4
 lxml
 google-generativeai
@@ -21,5 +22,4 @@ tiktoken==0.12.0
 
 isodate
 
-feedparser 
-requests
+feedparser
